@@ -16,6 +16,7 @@ With minor modifications, the current workflow can also be used on local machine
 * Bain path
 * Stacking fault (curves) (110)\[1-11\]\[-112\]
 * T-S curve
+* Dislocation properties (note that this feature does not integrated in the workflow yet)
 
 ## Prerequisites 
 
@@ -41,3 +42,10 @@ After the proper configuration, one is able to perform potential test.
 2. Customize the SLURM job submission parameter.
 3. make sure the configuration is corrected.
 4. run the test by submiting the job script `sbatch submit.sh`
+
+## For testing the dislocation properties.
+
+Currently the workflow does not include the dislocation benchmark. Everything regarding dislocation calculations are put in the `dislocation` folder, including
+* Script to create dislocation using [atomsk](https://atomsk.univ-lille.fr/)
+* LAMMPS script to crete various dislocations
+For more detials, please refer to another readme file inside dislocaiton folder.
