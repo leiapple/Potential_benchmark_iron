@@ -1,0 +1,84 @@
+#-----bcc iron
+#-----calculate Bain path.
+# lei.zhang@rug.nl
+
+#---------------------------------------------------------------------
+log             bainpath.log
+
+label           loop_start
+
+variable        i loop 1 65
+variable        latparam equal ${lat}
+
+clear
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+atom_modify     map yes
+
+#-------Define geometry  (2d X 2d) ------------------------------------
+lattice         bcc ${latparam} orient x 1 0 0 orient y 0 1 0 orient z 0 0 1 
+region          box block 0 1 0 1 0 1 units lattice
+create_box      1 box
+create_atoms    1 box
+
+#-------Define interatomic potential-----------------------------------
+include         ./potential/potential.in
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+#-------Define atom mass (no needed for molecular statics) ------------
+mass            1 55.845
+
+#-------Compute--------------------------------------------------------
+compute         eng all pe/atom
+compute         new all temp
+compute         csym all centro/atom bcc
+compute         poten all pe
+compute         stress all stress/atom NULL
+
+#-------Change---------------------------------------------------------
+
+variable        ratio  equal 0.7+0.02*${i}
+variable        beta  equal (1/${ratio})^(1/3)
+variable        al     equal ${latparam}*${beta}
+variable        alz    equal ${latparam}*${ratio}
+
+change_box      all x final 0 ${al} y final 0 ${al} z final 0 ${alz} remap units box
+#------Relaxation ------------------------------------------------------
+thermo          100
+thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press
+
+run 			0
+variable        tmp equal "pe"
+variable        pe0 equal ${tmp}
+
+fix             relaxB all box/relax aniso 0.0 vmax 0.0001 couple xyz  #couple xz couple yz
+min_style       cg
+minimize        1e-18 10e-12 100000000 1000000000
+unfix           relaxB
+
+min_style       cg
+minimize        1.0e-18 1.0e-12 10000 10000
+
+#-----Calculate the lattice parameter-----------------------------------
+variable        tmp equal "lx"
+variable        LX equal ${tmp}
+variable        tmp equal "ly"
+variable        LY equal ${tmp}
+variable        tmp equal "lz"
+variable        LZ equal ${tmp}
+variable        tmp equal "atoms"
+variable        N equal ${tmp}
+variable        V equal (${LX}*${LY}*${LZ})
+variable        tmp equal "pe"
+variable        pe1 equal ${tmp}
+variable        ca  equal ${LZ}/${LY}
+#-----compute ----------------------------------------------------------
+print           "${ca} ${pe0} ${pe1} ${ratio} ${LX} ${LY} ${LZ}" append ./bain_path.csv
+
+#-----jump to next loop-------------------------------------------------
+next            i
+jump            in.bain_path loop_start
+#-----end---------------------------------------------------------------

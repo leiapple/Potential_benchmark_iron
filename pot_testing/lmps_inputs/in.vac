@@ -1,0 +1,61 @@
+#-----lammps input for bcc material
+#-----calculate vacancy formation energy
+# lei.zhang@rug.nl
+
+#------------------------------------
+log             vac.log     
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+atom_modify     map yes
+variable        latparam equal ${lat}
+
+#-------Define geometry  (2d X 2d) ---
+lattice         bcc ${latparam} orient x 1 0 0 orient y 0 1 0 orient z 0 0 1 
+region          box block 0 4 0 4 0 4 units lattice
+create_box      1 box
+create_atoms    1 box
+
+#-------Define interatomic potential--
+include         ./potential/potential.in
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+#-------Define atom mass (no needed for molecular statics) 
+mass            1 55.845
+
+#-------Compute------------------------
+compute 	eng all pe/atom
+compute 	new all temp
+compute 	csym all centro/atom bcc
+compute 	poten all pe
+compute 	stress all stress/atom NULL
+
+thermo          10
+thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press
+run             0
+#-----Initial potential energy----------
+variable        tmp equal pe
+variable        pe0 equal ${tmp}
+variable        tmp equal "atoms"
+variable        N equal ${tmp}
+variable        Ecoh equal ${pe0}/${N}
+#------Delete one atom-------------------
+group           deleted id 1
+delete_atoms    group deleted
+#------Relaxation -----------------------
+minimize        1e-30 10e-12 100000000 1000000000
+
+timestep        0.01
+min_style       fire
+minimize        0.0 1e-5 100000000 10000000000
+#-----Calculate the lattice parameter-----
+variable        tmp equal pe
+variable        pe1 equal ${tmp}
+variable        Evac equal (${pe1}-${pe0})+${Ecoh}
+
+print "#**********************************"  append ./data/results.txt
+print "Vacancy formation energy is:" append ./data/results.txt
+print "${Evac}" append ./data/results.txt
+

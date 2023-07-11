@@ -1,0 +1,94 @@
+#-----bcc iron
+#-----calculate universal binding energy relation
+# TWO SITUATIONS are considered:
+# Unrelaxed, fully relaxed
+# lei.zhang@rug.nl
+
+#delete previous file
+shell           rm ts_110.csv
+#----------------initialization------------------------------------------
+label           loop_start
+variable        i loop 0 100
+variable        dd equal 0.05*${i}
+
+clear
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+atom_modify     map yes
+variable        latparam equal ${lat}
+
+#-------------define some variables for units conversion---------------
+variable        eV2J   equal 1.60218e-19
+variable        Angs2M equal 1.0e-10
+variable        eVA2GPa equal 160.2176621
+
+#-------Define geometry  (2d X 2d) ------------------------------------
+lattice         bcc ${latparam} orient x 1 0 0 orient y 0 1 -1 orient z 0 1 1
+region          box block 0 1 0 1 0 10 units lattice
+create_box      1 box
+create_atoms    1 box
+
+#-------Define interatomic potential-----------------------------------
+include        ./potential.in
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+#-------Define atom mass (no needed for moelcular statics) ------------
+mass            1 55.845
+
+#-------Compute--------------------------------------------------------
+compute         eng all pe/atom
+compute         new all temp
+compute         csym all centro/atom bcc
+compute         poten all pe
+compute         stress all stress/atom NULL
+
+thermo          10
+thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press 
+run             0
+
+# Define the upper and lower group of atoms
+variable        tmp equal "lx"
+variable        LX equal ${tmp}
+variable        tmp equal "ly"
+variable        LY equal ${tmp}
+variable        tmp equal "lz"
+variable        LZ equal ${tmp}
+variable        hfz equal ${LZ}/2-0.1
+variable        Area equal ${LX}*${LY}
+region          upper block INF INF INF INF ${hfz} INF units box
+region          lower block INF INF INF INF INF ${hfz} units box
+group           upper region upper
+group           lower region lower
+
+#-----change the  layer---------------------------------------------
+change_box      all z delta 0 ${dd} units box
+displace_atoms  upper move 0 0 ${dd} units box
+
+run             0
+#-----Initial potential energy-----------------------------------------
+variable        tmp equal pe
+variable        pe0 equal ${tmp}
+
+compute 	ffz all property/atom fz
+compute 	1 upper reduce sum c_ffz
+compute 	2 lower reduce sum c_ffz
+
+thermo_style    custom step pe c_1 c_2
+
+run             0 
+
+variable        usigmaZ equal ${eVA2GPa}*c_1/${Area}
+variable        dsigmaZ equal ${eVA2GPa}*c_2/${Area}
+
+#-----Calculate the lattice parameter----------------------------------
+variable        tmp equal pe
+variable        pe1 equal ${tmp}
+print           "${dd} ${pe0} ${pe1} ${Area} ${usigmaZ} ${dsigmaZ}" append ts_110.csv
+
+next            i
+jump            in.surf110 loop_start
+
+print           "JOB DONE!"

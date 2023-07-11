@@ -1,0 +1,75 @@
+#-----bcc iron
+#-----calculate surface energy (110)
+# lei.zhang@rug.nl
+
+#--------------initialization------------------------------------------
+log             surf110.log     
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+atom_modify     map yes
+
+#-------------define some variables for creating system----------------
+variable        latparam equal ${lat}
+variable        xdim equal ${latparam}*sqrt(1)+0.001
+variable        ydim equal ${latparam}*sqrt(2)+0.001
+variable        zdim equal ${latparam}*sqrt(2)*10
+
+#-------------define some variables for units conversion---------------
+variable        eV2J   equal 1.60218e-19
+variable        Angs2M equal 1.0e-10
+#-------Define geometry  (2d X 2d) ------------------------------------
+lattice         bcc ${latparam} orient x 1 0 0 orient y 0 1 -1 orient z 0 1 1 
+#region          box block 0 ${xdim} 0 ${ydim} 0 ${zdim} units box
+region          box block 0 1 0 1 0 10 units lattice
+create_box      1 box
+create_atoms    1 box
+
+#-------Define interatomic potential-----------------------------------
+include         ./potential/potential.in
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+#-------Define atom mass (no needed for molecular statics) ------------
+mass            1 55.845
+
+#-------Compute--------------------------------------------------------
+compute         eng all pe/atom
+compute         new all temp
+compute         csym all centro/atom bcc
+compute         poten all pe
+compute         stress all stress/atom NULL
+
+thermo          10
+thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press
+run             0
+#-----Initial potential energy-----------------------------------------
+variable        tmp equal pe
+variable        pe0 equal ${tmp}
+
+#-----Add the vacuum layer---------------------------------------------
+change_box      all z delta -10 10 units box
+
+#------Relaxation -----------------------------------------------------
+dump            1 all custom 1000 dump_110.* id type x y z fx fy fz c_stress[1] c_stress[2] c_stress[3] c_stress[4] c_stress[5] c_stress[6]
+min_style       cg
+minimize        1e-18 10e-9 100000000 1000000000
+
+undump          1
+#-----Calculate the lattice parameter----------------------------------
+variable        tmp equal "lx"
+variable        LX equal ${tmp}
+variable        tmp equal "ly"
+variable        LY equal ${tmp}
+variable        tmp equal "lz"
+variable        LZ equal ${tmp}
+variable        A0 equal ${LX}*${LY}
+variable        tmp equal pe
+variable        pe1 equal ${tmp}
+variable        Esurf equal (${pe1}-${pe0})*${eV2J}/(2*${A0}*${Angs2M}*${Angs2M})
+
+print           "========================================="  append ./data/results.txt
+print           "(110) surface energy is:" append ./data/results.txt
+print           "${Esurf}" append ./data/results.txt
+

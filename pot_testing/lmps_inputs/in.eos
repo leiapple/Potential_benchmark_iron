@@ -1,0 +1,70 @@
+#-----lammps input for bcc material
+#-----calculate the energy volume curve
+# lei.zhang@rug.nl
+
+#----------general initiation--------------------------
+
+log             eos.log           
+label           loop_start
+
+variable        i loop 1 30
+variable        latparam equal 2.834-0.05+(0.1/30)*${i}
+
+clear
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+atom_modify     map yes
+
+#-------Define geometry  (2d X 2d) ---------------------
+lattice         bcc ${latparam} orient x 1 0 0 orient y 0 1 0 orient z 0 0 1 
+region          box block 0 1 0 1 0 1 units lattice
+create_box      1 box
+create_atoms    1 box
+
+#-------Define interatomic potential--------------------
+include         ./potential/potential.in
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+#-------Define atom mass (no needed for moelcular statics) 
+mass            1 55.845
+
+#-------Compute------------------------------------------
+compute 	eng all pe/atom
+compute 	new all temp
+compute 	csym all centro/atom bcc
+compute 	poten all pe
+compute 	stress all stress/atom NULL
+
+#------Relaxation----------------------------------------
+thermo          100
+thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press
+
+min_style       cg
+minimize        1e-30 10e-12 100000000 1000000000
+
+#-----Calculate the lattice parameter--------------------
+variable        tmp equal "lx"
+variable        LX equal ${tmp}
+variable        tmp equal "ly"
+variable        LY equal ${tmp}
+variable        tmp equal "lz"
+variable        LZ equal ${tmp}
+variable        tmp equal "atoms"
+variable        N equal ${tmp}
+variable        V equal (${LX}*${LY}*${LZ})
+variable        tmp equal "pe"
+variable        pe0 equal ${tmp}
+variable        teng equal ${pe0}/${N}
+variable        vol  equal ${V}/${N}
+
+#-----output to datafolder-------------------------------- 
+print           "${vol} ${teng}" append ./volume.dat
+
+#-----jump to next loop-----------------------------------
+next            i
+jump            in.eos loop_start
+
+print           "JOB DONE!"

@@ -1,0 +1,83 @@
+# <15 July 2021>
+# Calculate stacking fault energy of bcc iron
+# lei.zhang@rug.nl
+
+log             sfe_112.log
+units           metal
+boundary        p p p
+dimension       3
+atom_style      atomic
+
+#-------Define geometry  (2d X 2d) -------------------------------------------------
+variable        latparam equal ${lat}
+lattice         bcc ${latparam} orient x 1 1 -2 orient y -1 1 0 orient z 1 1 1
+region          box block 0 15 0 1 0 1 units lattice
+create_box      1 box
+create_atoms    1 box
+
+#-------Define interatomic potential-----------------------------------
+include         ./potential/potential.in
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+#-------Define atom mass (no needed for moelcular statics) ------------
+mass            1 55.845
+
+#------Define upper and lower regions to move--------------------------
+variable        xmid equal (xlo+xhi)/2+0.1
+region          upper block INF ${xmid} INF INF INF INF units box 
+region          lower block ${xmid} INF INF INF INF INF units box
+group           upper region upper
+group           lower region lower
+
+#----------------------------------------------------------------------
+compute         eng all pe/atom
+compute         new all temp
+compute         csym all centro/atom bcc
+compute         poten all pe
+compute         stress all stress/atom NULL
+
+thermo          10
+thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press
+
+min_style       cg
+minimize        1.0e-18 1.0e-9 10000 10000
+
+variable        tmp equal "pe"
+variable        pe0 equal ${tmp}
+
+print           "displacement energy(eV/Ang^2) energy(J/m^2)" append ./sfe_112.csv
+print           "0.0 0.0 0.0" append ./sfe_112.csv
+#---------start loop--------------------------------------------------
+label           loopn
+variable        n loop 100
+
+reset_timestep  0
+
+fix             freeze all setforce NULL 0.0  0.0
+displace_atoms  upper move 0 0 0.04 units box
+
+dump            dump_img all custom 5000 sfe_112.$n id type x y z c_eng c_csym 
+min_style       cg
+minimize        1.0e-18 1.0e-9 10000 10000
+undump          dump_img
+unfix           freeze
+
+variable        tmp equal "pe"
+variable        pe1 equal ${tmp}  
+variable        tmp equal "lx"
+variable        LX equal ${tmp}
+variable        tmp equal "ly"
+variable        LY equal ${tmp}
+variable        tmp equal "lz"
+variable        LZ equal ${tmp}
+variable        A1  equal ${LY}*${LZ}
+variable        SFE0 equal (${pe1}-${pe0})/(2*${A1})
+# units conversion: eV/Ang^2 to J/m^2
+variable        SFE equal ${SFE0}*16.0217733   
+variable        dis equal ${n}*0.04+0.00000001
+
+print           "${dis} ${SFE0} ${SFE}" append ./sfe_112.csv
+
+next            n
+jump            in.sfe_112 loopn
