@@ -1,0 +1,313 @@
+#---- Initialize simulation ------------------
+clear
+units metal
+dimension 3
+boundary p p s
+atom_style atomic
+
+#---- Create Iron Atoms ----------------------
+variable a equal 2.833
+
+#---- periodic spacings of bcc lattice
+variable Nax equal 1
+variable Nay equal 80
+variable Naz equal 22
+
+#---- bcc lattice dimensions in periodic box
+
+variable xadim equal sqrt(2)*${Nax}*$a
+variable yadim equal sqrt(1)/2*${Nay}*$a
+variable zadim equal sqrt(2)/2*${Naz}*$a
+
+#---- bcc region accounting for round-off
+
+variable eps equal 0.1
+variable eps_bc equal 5
+variable eps_bct equal 13
+variable eps_bcb equal 11
+
+variable xadim_min equal -${xadim}-${eps}
+variable xadim_max equal ${xadim}-2*${eps}
+
+variable yadim_min equal -${yadim}-${eps}
+variable yadim_max equal ${yadim}-${eps}
+
+variable yadim_edge equal ${yadim_max}-sqrt(3)/2*$a
+
+variable zadim_min equal -${zadim}-${eps}
+variable zadim_max equal ${zadim}-${eps}
+
+#---- dimensions for subregions
+
+variable zadim_mid equal -${eps}
+variable zadim_top equal ${zadim}-${eps_bct}
+variable zadim_bot equal -${zadim}+${eps_bcb}
+
+variable zadim_cent_bot equal -1.5*${eps_bc}
+variable zadim_cent_top equal 1.5*${eps_bc}
+
+variable msft_disp equal sqrt(3)/2*$a
+
+variable ymindip equal -0.6*(sqrt(1)*$a)
+variable ymaxdip equal 0.1*(sqrt(1)*$a)
+
+#---- create bcc lattice
+region whole prism ${xadim_min} ${xadim} ${yadim_min} ${yadim} ${zadim_min} ${zadim} 0.0 0.0 0.0 units box
+create_box 1 whole
+
+lattice         bcc $a
+region  1 prism ${xadim_min} ${xadim_max} ${yadim_min} ${yadim_max} ${zadim_min} ${zadim_max} 0.0 0.0 0.0 units box
+lattice bcc $a orient x 0 -1 1 orient y 1 0 0 orient z 0 1 1
+create_atoms 1 region 1
+
+
+######### Regions for disl
+region  21 prism ${xadim_min} ${xadim_max} ${yadim_min} 0 ${zadim_min} ${zadim_mid} 0.0 0.0 0.0 units box
+region  22 prism ${xadim_min} ${xadim_max} 0 ${yadim_max} ${zadim_min} ${zadim_mid} 0.0 0.0 0.0 units box
+region  3 prism INF INF INF INF ${zadim_min} ${zadim_bot} 0.0 0.0 0.0 units box
+region  4 prism INF INF INF INF ${zadim_top} ${zadim_max} 0.0 0.0 0.0 units box
+region  5 prism ${xadim_min} ${xadim_max} ${yadim_min} ${yadim_max} ${zadim_cent_bot} ${zadim_cent_top} 0.0 0.0 0.0 units box
+region  6 prism INF INF ${ymindip} ${ymaxdip} ${zadim_min} ${zadim_mid} 0 0 0  units box
+#group iron type 1
+
+group topleft region 21
+group topright region 22
+group botg region 3
+group topg region 4
+group center region 5
+group edge region 6
+group mobile subtract all botg topg
+# Create H atoms
+#include H_conc_0.50
+
+
+#---- Define variables
+
+variable zmax equal bound(topg,zmin)
+variable zmin equal bound(botg,zmax)
+
+variable dz equal v_zmax-v_zmin
+
+variable ntop equal count(topg)
+variable nbot equal count(botg)
+
+variable rtop_0 equal -10*lx*ly/(v_ntop*160218)
+variable rbot_0 equal 10*lx*ly/(v_nbot*160218)
+
+variable rtop equal  0
+variable rbot equal  0
+
+#---- Define Interatomic Potential -----------
+include ../potential/potential.in
+mass * 55.6
+#---- Run Minimization -----------------------
+#reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 100
+
+compute eng all pe/atom
+compute eatoms all reduce sum c_eng
+
+compute eng_core center pe/atom
+compute eatoms_core center reduce sum c_eng
+variable ncenter equal count(center)
+
+variable press_x equal abs(pxx)
+variable press_y equal abs(pyy)
+variable press_xy equal abs(pxy)
+
+include SF_detection
+
+variable j loop 10
+label loop_bcc
+
+#---- dump for post processing ---------------
+#dump 1 all custom 5000 dump.bcc.* id type x y z c_eng c_eng_core c_cna_at fx fy fz
+
+variable tol equal 100
+variable i loop 10
+
+label loop_head
+
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 100
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz v_ncenter c_eatoms c_eatoms_core c_Y_sf[1] fnorm
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+if "${press_x} < ${tol} && ${press_y} < ${tol} && ${press_xy} < ${tol}" then "jump input_BCC_init exit_label"
+
+next i
+jump input_BCC_init loop_head
+
+label exit_label
+
+unfix 1
+
+thermo 100
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz v_ncenter c_eatoms c_eatoms_core fnorm
+min_style fire
+minimize 0 1e-5 50000 200000
+
+#undump 1
+
+next j
+jump input_BCC_init loop_bcc
+
+uncompute cna_at
+uncompute cna_tot
+variable cna_value delete
+uncompute Y_sf
+group sf_atoms delete
+
+write_restart restart.bcc
+
+delete_atoms region 6
+
+variable quaterB equal 0.5*sqrt(1)*$a
+variable quaterBb equal -0.3*${quaterB}
+#---- Displacement ---------------------------
+displace_atoms topleft ramp y 0.0 ${quaterB} y -${yadim} ${quaterBb} units box
+displace_atoms topright ramp y -${quaterB} 0.0 y 0 ${yadim} units box
+delete_atoms overlap 0.5 all all
+
+#---- Run Minimization - First normal stresses
+
+reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 vmax 0.01
+thermo 100
+
+include SF_detection
+
+variable p loop 10
+label loop_edge2
+
+#---- dump for post processing ---------------
+dump 1 all custom 5000 dump.edge.norm.* id type x y z c_eng c_eng_core c_cna_at fx fy fz
+
+variable tol equal 100
+variable l loop 10
+
+label loop_head3
+
+fix 1 all box/relax x 0.0 y 0.0 vmax 0.01
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz v_ncenter c_eatoms c_eatoms_core c_Y_sf[1] fnorm
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+#variable press_x equal abs(pxx)
+#variable press_y equal abs(pyy)
+
+if "${press_x} < ${tol} && ${press_y} < ${tol}" then "jump input_BCC_init exit_label2"
+
+next l
+jump input_BCC_init loop_head3
+
+label exit_label2
+
+unfix 1
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_eatoms c_eatoms_core fnorm
+min_style fire
+minimize 0 1e-5 50000 200000
+
+undump 1
+
+next p
+jump input_BCC_init loop_edge2
+
+uncompute cna_at
+uncompute cna_tot
+variable cna_value delete
+uncompute Y_sf
+group sf_atoms delete
+
+#write_restart restart.edge.norm
+
+#---- Run Minimization -----------------------
+#reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 100
+
+include SF_detection
+
+variable k loop 10
+label loop_edge
+
+#---- dump for post processing ---------------
+dump 1 all custom 5000 dump.edge.init.* id type x y z c_eng c_eng_core c_cna_at fx fy fz
+
+variable tol equal 100
+variable q loop 10
+
+label loop_head2
+
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz v_ncenter c_eatoms c_eatoms_core c_Y_sf[1] fnorm
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+#variable press_xy equal abs(pxy)
+
+if "${press_x} < ${tol} && ${press_y} < ${tol} && ${press_xy} < ${tol}" then "jump input_BCC_init exit_label3"
+
+next q
+jump input_BCC_init loop_head2
+
+label exit_label3
+
+unfix 1
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz v_ncenter c_eatoms c_eatoms_core fnorm
+min_style fire
+minimize 0 1e-5 50000 200000
+
+undump 1
+
+next k
+jump input_BCC_init loop_edge
+
+uncompute cna_at
+uncompute cna_tot
+variable cna_value delete
+uncompute Y_sf
+group sf_atoms delete
+
+variable osixB equal sqrt(1)/4*$a
+#write_restart restart.edge
+# shear displacement
+displace_atoms topg move 0 ${osixB} 0 units box
+displace_atoms mobile ramp y ${osixB} 0 z ${zadim_top} ${zadim_bot}  units box
+
+fix 11 topg setforce 0 0 0
+fix 12 botg setforce 0 0 0
+
+include SF_detection
+# relaxation
+
+dump 1 all custom 10 dump.edge.shear.* id type x y z c_eng c_eng_core c_cna_at fx fy fz
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz v_ncenter c_eatoms c_eatoms_core fnorm
+
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+min_style fire
+minimize 0 1e-5 50000 200000
+
+undump 1
+
+unfix 11
+unfix 12 
+
+variable natoms equal "count(all)"
+variable teng equal "c_eatoms"
+variable ecoh equal "v_teng/v_natoms"
+
+# SIMULATION DONE
+print "All done!"

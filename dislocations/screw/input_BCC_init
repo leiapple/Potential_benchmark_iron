@@ -1,0 +1,265 @@
+# Francesco Maresca, March 2017
+# f.maresca@rug.nl
+#---- Initialize simulation ------------------
+clear
+units metal
+dimension 3
+boundary p p s
+atom_style atomic
+
+#---- Create Alloy Atoms ----------------------
+variable a equal 2.8333
+
+#---- periodic spacings of bcc lattice
+variable Nax equal 60
+variable Nay equal 2
+variable Naz equal 19
+
+#---- bcc lattice dimensions in periodic box
+
+variable xadim equal sqrt(6)/2*${Nax}*$a
+variable yadim equal sqrt(3)/2*${Nay}*$a
+variable zadim equal sqrt(2)/2*${Naz}*$a
+
+#---- bcc region accounting for round-off
+
+variable eps equal 0.1
+variable eps_bc equal 5
+variable eps_bct equal 13
+variable eps_bcb equal 11
+
+variable xadim_min equal -${xadim}-${eps}
+variable xadim_max equal ${xadim}-${eps}
+
+variable yadim_min equal -${yadim}-${eps}
+variable yadim_max equal ${yadim}-${eps}
+
+variable zadim_min equal -${zadim}-${eps}
+variable zadim_max equal ${zadim}-${eps}
+
+#---- dimensions for subregions
+
+variable zadim_mid equal -${eps}
+variable zadim_top equal ${zadim}-${eps_bct}
+variable zadim_bot equal -${zadim}+${eps_bcb}
+
+variable zadim_cent_bot equal -2*${eps_bc}
+variable zadim_cent_top equal 2*${eps_bc}
+
+variable msft_disp equal sqrt(3)/2*$a
+
+variable z_sup2 equal 0.35*lz
+variable z_inf2 equal -0.4*lz
+
+#---- create bcc lattice
+region whole prism ${xadim_min} ${xadim} ${yadim_min} ${yadim} ${zadim_min} ${zadim} 0.0 0.0 0.0 units box
+create_box	1 whole
+
+lattice         bcc $a
+region  1 prism ${xadim_min} ${xadim_max} ${yadim_min} ${yadim_max} ${zadim_min} ${zadim_max} 0.0 0.0 0.0 units box
+lattice bcc $a orient x 1 2 -1 orient y -1 1 1 orient z 1 0 1
+create_atoms 1 region 1
+
+mass  *         55
+region  2 prism ${xadim_min} ${xadim_max} ${yadim_min} ${yadim_max} ${zadim_mid} ${zadim_max} 0.0 0.0 0.0 units box
+region  5 prism ${xadim_min} ${xadim_max} ${yadim_min} ${yadim_max} ${zadim_cent_bot} ${zadim_cent_top} 0.0 0.0 0.0 units box
+
+region 6 plane 0 0 ${z_sup2} 0 0 1 units box
+region 7 plane 0 0 ${z_inf2} 0 0 -1 units box
+
+group alloy type 1
+
+group upper_half region 2
+group center region 5
+
+group botg2 region 7
+group topg2 region 6
+
+#---- Define variables
+
+variable zmax equal bound(topg2,zmin)
+variable zmin equal bound(botg2,zmax)
+
+variable dz equal v_zmax-v_zmin
+
+variable ntop equal count(topg2)
+variable nbot equal count(botg2)
+
+variable rtop_0 equal -50*lx*ly/(v_ntop*160218)
+variable rbot_0 equal  50*lx*ly/(v_nbot*160218)
+
+variable rtop equal  0
+variable rbot equal  0
+
+#---- Define Interatomic Potential -----------
+include ../potential/potential.in
+
+#---- Run Minimization -----------------------
+reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 vmax 0.01
+thermo 10
+
+compute eng all pe/atom
+compute eatoms all reduce sum c_eng
+
+include SF_detection
+
+#---- dump for post processing ---------------
+#dump 1 all custom 10000 dump.bcc.* id type x y z c_eng c_cna_at fx fy fz
+
+variable tol equal 1.5
+variable i loop 100
+
+label loop_head
+
+unfix 1
+
+fix 1 all box/relax x 0.0 y 0.0 vmax 0.01
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_eatoms c_Y_sf[1] fnorm
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+variable press_x equal abs(pxx)
+variable press_y equal abs(pyy)
+
+if "${press_x} < ${tol} && ${press_y} < ${tol}" then "jump input_BCC_init exit_label"
+
+next i
+jump input_BCC_init loop_head
+
+label exit_label
+
+unfix 1
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_eatoms fnorm
+min_style fire
+minimize 0 1e-5 50000 200000
+
+#undump 1
+
+uncompute cna_at
+uncompute cna_tot
+variable cna_value delete
+uncompute Y_sf
+group sf_atoms delete
+
+write_restart restart.bcc
+
+#---- Displacement ---------------------------
+displace_atoms upper_half ramp y -${msft_disp} 0.0 x -${xadim} ${xadim} units box
+
+#---- Run Minimization - First normal stresses
+
+reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 vmax 0.01
+thermo 10
+
+include SF_detection
+
+variable p loop 10
+label loop_screw2
+
+#---- dump for post processing ---------------
+#dump 1 all custom 10 dump.screw.init.* id type x y z c_eng c_cna_at fx fy fz
+
+variable tol equal 1.5
+variable l loop 5
+
+label loop_head3
+
+fix 1 all box/relax x 0.0 y 0.0 vmax 0.01
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_eatoms c_Y_sf[1] fnorm
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+variable press_x equal abs(pxx)
+variable press_y equal abs(pyy)
+
+if "${press_x} < ${tol} && ${press_y} < ${tol}" then "jump input_BCC_init exit_label2"
+
+next l
+jump input_BCC_init loop_head3
+
+label exit_label2
+
+unfix 1
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_eatoms fnorm
+min_style fire
+minimize 0 1e-5 50000 200000
+
+#undump 1
+
+next p
+jump input_BCC_init loop_screw2
+
+uncompute cna_at
+uncompute cna_tot
+variable cna_value delete
+uncompute Y_sf
+group sf_atoms delete
+
+#write_restart restart.screw.norm
+
+#---- Run Minimization -----------------------
+reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 10
+
+include SF_detection
+
+variable k loop 10
+label loop_screw
+
+#---- dump for post processing ---------------
+dump 1 all custom 1000 dump.screw.init.* id type x y z c_eng c_cna_at fx fy fz
+
+variable tol equal 100
+variable i loop 100
+
+label loop_head2
+
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz c_eatoms c_Y_sf[1] fnorm
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+#variable press_x equal abs(pxx)
+#variable press_y equal abs(pyy)
+variable press_xy equal abs(pxy)
+
+if "${press_x} < ${tol} && ${press_y} < ${tol} && ${press_xy} < ${tol}" then "jump input_BCC_init exit_label3"
+
+next i
+jump input_BCC_init loop_head2
+
+label exit_label3
+
+unfix 1
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz c_eatoms fnorm
+min_style fire
+minimize 0 1e-5 50000 200000
+
+undump 1
+
+next k
+jump input_BCC_init loop_screw
+
+uncompute cna_at
+uncompute cna_tot
+variable cna_value delete
+uncompute Y_sf
+group sf_atoms delete
+
+#write_restart restart.screw.init
+
+# SIMULATION DONE
+print "All done!"
+

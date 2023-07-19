@@ -1,0 +1,26 @@
+# SF detection
+
+compute cna_at center cna/atom 3.08
+compute cna_tot center reduce sum c_cna_at
+
+# --- first dump to group the atoms of the stacking fault
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_eatoms c_cna_tot
+dump 1 all custom 100 dump.comp.* id type x y z c_eng c_cna_at fx fy fz
+dump_modify 1 sort id
+run 0
+undump 1
+
+variable cna_value atom "c_cna_at==5"
+group sf_atoms variable cna_value
+
+# --- second dump to calculate the sf center of mass
+compute Y_sf sf_atoms com
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_eatoms c_Y_sf[1]
+dump 1 all custom 100 dump.comp.* id type x y z c_eng fx fy fz
+dump_modify 1 sort id
+run 0
+variable Ysf equal c_Y_sf[1]
+print "x-coordinate of the dislocation core is ${Ysf}"
+
+undump 1
+
