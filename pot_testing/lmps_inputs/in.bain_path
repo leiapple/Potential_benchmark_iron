@@ -43,7 +43,7 @@ compute         stress all stress/atom NULL
 variable        ratio  equal 0.7+0.02*${i}
 variable        beta  equal (1/${ratio})^(1/3)
 variable        al     equal ${latparam}*${beta}
-variable        alz    equal ${latparam}*${ratio}
+variable        alz    equal ${al}*${ratio}
 
 change_box      all x final 0 ${al} y final 0 ${al} z final 0 ${alz} remap units box
 #------Relaxation ------------------------------------------------------
