@@ -1,0 +1,86 @@
+# Francesco Maresca, February 2023
+# f.maresca@rug.nl
+
+#---- Initialize simulation ------------------
+clear
+units metal
+dimension 3
+boundary p p s
+atom_style atomic
+
+# specify the restart step and dump file name.
+read_restart restart.shear.50
+read_dump dump.shear.17300 17300 x y z box no
+
+#---- Define Interatomic Potential -----------
+include ../../potential.in
+mass * 1.0
+
+compute eng all pe/atom
+compute eatoms all reduce sum c_eng
+
+#---- dump for post processing ---------------
+dump 1 all custom 1000 dump.screw.* id type x y z c_eng fx fy fz
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz fnorm
+min_style fire
+minimize 0 1e-4 50000 200000
+
+#---- Run Minimization -----------------------
+reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 vmax 0.01
+thermo 10
+
+#---- Run Minimization -----------------------
+reset_timestep 0
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 10
+
+variable k loop 10
+label loop_screw
+
+variable tol equal 100
+variable i loop 100
+
+label loop_head2
+
+fix 1 all box/relax x 0.0 y 0.0 xy 0.0 vmax 0.01
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz c_eatoms fnorm
+min_style cg
+minimize 1e-15 1e-15 100 20000
+
+variable press_x equal abs(pxx)
+variable press_y equal abs(pyy)
+variable press_xy equal abs(pxy)
+
+if "${press_x} < ${tol} && ${press_y} < ${tol} && ${press_xy} < ${tol}" then "jump input_BCC exit_label3"
+
+next i
+jump input_BCC loop_head2
+
+label exit_label3
+
+unfix 1
+
+thermo 10
+thermo_style custom step pe lx ly lz press pxx pyy pzz pxy pxz pyz c_eatoms fnorm
+min_style fire
+minimize 0 1e-4 50000 200000
+
+#undump 1
+
+next k
+jump input_BCC loop_screw
+
+write_restart restart.screw.moved
+
+#---- End of simulation
+
+variable natoms equal "count(all)"
+variable teng equal "c_eatoms"
+variable ecoh equal "v_teng/v_natoms"
+
+# SIMULATION DONE
+print "All done!"

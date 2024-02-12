@@ -1,0 +1,4 @@
+read_restart restart.screw
+include ../../potential.in
+mass * 55
+write_data initial.data nocoeff

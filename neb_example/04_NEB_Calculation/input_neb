@@ -1,0 +1,175 @@
+# Francesco Maresca, February 2016
+# f.maresca@rug.nl
+
+#---- Initialize simulation ------------------
+clear
+units metal
+dimension 3
+boundary m p m
+atom_style atomic
+atom_modify map array
+atom_modify sort 0 0.0
+
+#---- Read restart file ------------------------
+read_data initial.data
+
+change_box all boundary p p s
+
+#---- Define Interatomic Potential -----------
+include ../../potential.in
+mass * 55.6
+run 1 # Avoid that dump file is written on timestep 0
+
+neigh_modify delay 0 every 1 check yes
+
+variable i equal part
+
+compute cna_at all cna/atom 3.08
+compute csym all centro/atom bcc
+compute eng all pe/atom
+compute eatoms all reduce sum c_eng
+
+variable eatoms_spec equal "c_eatoms/count(all)"
+variable natoms equal "count(all)"
+
+variable teng equal "c_eatoms"
+variable ecoh equal "v_teng/v_natoms"
+
+#---- identify boundary and neb regions
+
+variable dimx equal 0.5*lx
+variable dimy equal 0.5*ly
+variable dimz equal 0.5*lz
+
+variable dimymin equal ${dimy}+0.2
+variable dimymax equal ${dimy}+0.2
+
+variable dimxmin equal ${dimx}/4+0.2
+variable dimxmax equal ${dimx}/6+0.2
+
+variable dimzmin equal ${dimz}/2+0.2
+variable dimzmax equal ${dimz}/3+0.2
+
+variable dimz_inf equal lz/2+2
+variable dimz_sup equal lz/2+2
+
+variable dimy_inf equal ly/2+2
+variable dimy_sup equal ly/2+2
+
+variable dimx_inf equal lx/2+2
+variable dimx_sup equal lx/2+2
+
+region  1 prism -${dimx_inf} ${dimx_sup} -${dimy_inf} ${dimy_sup} -${dimz_inf} ${dimz_sup} 0.0 0.0 0.0 units box
+
+variable Nax equal 10
+variable Naz equal 15
+
+variable eps_v equal 0.5*lz/${Naz}
+variable eps_h equal 0.5*lx/${Nax}
+
+variable z_sup equal 0.1*lz-1.1*${eps_v}
+variable z_inf equal -0.25*lz+${eps_v}
+
+variable z_sup2 equal 0.30*lz
+variable z_inf2 equal -0.35*lz
+
+variable x_right equal 0.06*lx-0.6*${eps_h}
+variable x_left equal -0.06*lx+0.5*${eps_h}
+
+region 2 plane 0 0 ${z_sup} 0 0 1 units box
+region 3 plane 0 0 ${z_inf} 0 0 -1 units box
+
+region 6 plane 0 0 ${z_sup2} 0 0 1 units box
+region 7 plane 0 0 ${z_inf2} 0 0 -1 units box
+
+region 4 plane ${x_right} 0 0 1 0 0 units box
+region 5 plane ${x_left} 0 0 -1 0 0 units box
+
+region top intersect 2 1 2
+region bot intersect 2 1 3
+
+region top2 intersect 2 1 6
+region bot2 intersect 2 1 7
+
+region right intersect 2 1 4
+region left intersect 2 1 5
+
+region vert union 2 top bot
+region horiz union 2 left right
+
+region boundary union 2 vert horiz
+
+#region neb prism ${x_left} ${x_right} -${dimymin} ${dimymax} ${z_inf} ${z_sup} 0.0 0.0 0.0 units box
+region neb prism -${dimxmin} ${dimxmax} -${dimymin} ${dimymax} ${z_inf} ${z_sup} 0.0 0.0 0.0 units box
+
+#---
+
+group a_top region top
+group a_bot region bot
+
+group a_top2 region top2
+group a_bot2 region bot2
+
+group a_right region right
+group a_left region left
+group a_boundary region boundary
+#group a_neb region neb
+group a_neb type 1
+
+#---- Define variables
+
+variable zmax equal bound(a_top2,zmin)
+variable zmin equal bound(a_bot2,zmax)
+
+variable dz equal v_zmax-v_zmin
+
+variable ntop equal count(a_top2)
+variable nbot equal count(a_bot2)
+
+variable rtop_0 equal  0*lx*ly/(v_ntop*160218)
+variable rbot_0 equal -0*lx*ly/(v_nbot*160218)
+
+#---- NEB analysis
+
+variable rtop equal 1*${rtop_0}
+variable rbot equal 1*${rbot_0}
+
+fix 1 a_top2 setforce 0.0 0.0 0.0
+fix 2 a_bot2 setforce 0.0 0.0 0.0
+
+compute top_disp a_top2 displace/atom
+compute bot_disp a_bot2 displace/atom
+
+compute PE_all_vector all pe/atom
+dump 1 all custom 1000 dump.nebatoms.${i} id type x y z c_PE_all_vector c_top_disp[2] c_bot_disp[2]
+
+compute top_disp_tot a_top2 reduce sum c_top_disp[2]
+compute bot_disp_tot a_bot2 reduce sum c_bot_disp[2]
+
+#timestep 0.001
+min_style quickmin
+thermo 10
+thermo_style custom step temp pe ke press fnorm
+
+dump 2 all custom 10000 dump.final.${i} id type x y z c_PE_all_vector c_top_disp[2] c_bot_disp[2]
+
+fix 3 all neb 0.01
+neb 0.0 5e-3 10000 10000 1 final neb.final
+write_data data.transition_path.${i}
+
+thermo_style custom step pe lx ly lz press pxx pyy pzz c_top_disp_tot c_bot_disp_tot
+run 0
+variable work equal ${rtop}*c_top_disp_tot+${rbot}*c_bot_disp_tot
+variable enthalpy equal pe-${work}
+variable pot_eng equal pe
+print "Potential energy of replica $i is ${pot_eng}"
+print "Plastic work of dislocation at replica $i is ${work}"
+print "Enthalpy of replica $i is ${enthalpy}"
+
+print "data_enth_pe_work" file data.$i
+print ${enthalpy} append data.$i
+print ${pot_eng} append data.$i
+print ${work} append data.$i
+
+# SIMULATION DONE
+print "All done!"
