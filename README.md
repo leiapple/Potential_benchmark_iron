@@ -20,8 +20,8 @@ With minor modifications, the current workflow can also be used on local machine
 
 ## Prerequisites 
 
-1. Installation of LAMMPS with the relative packages compiled
-2. Installation of PYTHON package: matplotlib, pandas, numpy, scipy
+1. Installation of LAMMPS with the relevant packages compiled.
+2. Installation of PYTHON package: matplotlib, pandas, numpy, scipy.
 
 ## How it works?
 
