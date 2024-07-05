@@ -1,0 +1,152 @@
+##------------------------------------
+clear
+log             ./log.crack
+units           metal
+dimension       3
+boundary        s s p
+atom_style      atomic
+atom_modify     map yes
+variable        latparam equal ${a0}
+
+variable        box_lengthx equal 55
+variable        box_lengthy equal 38
+variable        xdim_1 equal -1*(${latparam}*${box_lengthx})*sqrt(1)-0.001
+variable        ydim_1 equal -1*(${latparam}*${box_lengthy})*sqrt(2)-0.001
+variable        xdim_2 equal 1*(${latparam}*${box_lengthx})*sqrt(1)
+variable        ydim_2 equal 1*(${latparam}*${box_lengthy})*sqrt(2)
+variable        zdim equal (${latparam}*1)*sqrt(2)
+
+#-------Define geometry  (2d X 2d) -------------------------------------------------
+lattice         bcc ${latparam} orient x 0 0 -1 orient y 1 1 0 orient z 1 -1 0
+region          box block ${xdim_1} ${xdim_2} ${ydim_1} ${ydim_2} -0.0001 ${zdim} units box
+create_box      2 box
+create_atoms    1 box
+
+#-------Define interatomic potential------------------------------------
+include         ../bench/potential/potential.in
+neighbor        2.0 bin
+neigh_modify every 1 delay 0 check yes
+#-------Define atom mass (no needed for moelcular statics) -------
+mass            * ${m}
+#-------Compute-------
+compute 	eng all pe/atom
+compute 	new all temp
+compute 	csym all centro/atom bcc
+compute 	1 all pe
+compute 	stress all stress/atom NULL
+
+##----------------crack tip definition----------
+variable        xtip equal ${latparam}*sqrt(1)*0.25
+variable        ytip equal ${latparam}*sqrt(2)*0.25
+
+#--------------Define the CIRCULAR region for simulation-----------------
+if "${xdim_2} <= ${ydim_2}" then &
+"variable        radius1 equal ${xdim_2}-1" &
+else &
+"variable        radius1 equal ${ydim_2}-1"
+region          remained  cylinder z ${xtip} ${ytip} ${radius1} INF INF units box
+group           remained region remained
+group           deleted subtract all remained
+delete_atoms    group deleted
+#---------------------------Boundary region------------------------------
+variable        radius2 equal ${radius1}-10
+region          mobile  cylinder z ${xtip} ${ytip} ${radius2} INF INF units box
+group           mobile region mobile
+group           boundary subtract all mobile
+set             group boundary type 2
+
+#------Crack definition by screening ------
+variable        y_crack_1 equal ${ytip}-2
+variable        y_crack_2 equal ${ytip}+2
+
+region          crack_lower1 block INF ${xtip} ${y_crack_1} ${ytip} INF INF units box
+region          crack_upper1 block INF ${xtip} ${ytip} ${y_crack_2} INF INF units box
+group           crack_lower region crack_lower1
+group           crack_upper region crack_upper1
+#delete_atoms    group crack_lower
+#delete_atoms    group crack_upper
+
+#--------Initial relaxation ------------
+thermo          100
+thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press
+
+min_style       cg
+minimize        1e-12 10e-9 100000000 1000000000
+
+dump            1 all custom 1 ./file.crack.dump.check id type x y z
+run             0
+undump          1
+
+reset_timestep	0
+compute		disp all displace/atom
+#---------------aniotropic input as a function of the material elastic properties-------------
+include         ../lefm_coeffs/lefm_paras.CrackSystem_${CrkSys}
+
+#------------------initial crack from which the loop will be started------------------------------------------
+reset_timestep  0
+displace_atoms all crackaniso ${Kstart}  ${s1_real} ${s1_imag} ${s2_real} ${s2_imag} ${p1_real} ${p1_imag} ${p2_real} ${p2_imag} ${q1_real} ${q1_imag} ${q2_real} ${q2_imag} ${xtip} ${ytip}
+
+#------------------increment defining for crack loop-----------------------------------------------------------
+fix             xorig all store/state 0 x
+fix             yorig all store/state 0 y
+variable        xorig1 atom f_xorig
+variable        yorig1 atom f_yorig
+run             0
+
+displace_atoms all crackaniso 1 ${s1_real} ${s1_imag} ${s2_real} ${s2_imag} ${p1_real} ${p1_imag} ${p2_real} ${p2_imag} ${q1_real} ${q1_imag} ${q2_real} ${q2_imag} ${xtip} ${ytip}
+variable        delx atom x-v_xorig1
+variable        dely atom y-v_yorig1
+run             0
+
+fix             dx all store/state 0 v_delx
+fix             dy all store/state 0 v_dely
+variable        xx atom f_dx
+variable        yy atom f_dy
+run             0
+
+variable        tmp equal "lx"
+variable        LX equal ${tmp}
+variable        tmp equal "ly"
+variable        LY equal ${tmp}
+variable        tmp equal "lz"
+variable        LZ equal ${tmp}
+variable        tmp equal "atoms"
+variable        N equal ${tmp}
+variable        V equal (${LX}*${LY}*${LZ})
+variable	cosT equal cos(70.53*3.14159/180)
+variable	sinT equal sin(70.53*3.14159/180)
+
+#----------------start of the crack loop------------------------------
+label           loop_start
+variable        K loop ${Kstart} ${Kstop}
+	fix             1 boundary setforce 0.0 0.0 0.0
+	variable        xnew atom x+v_xx
+	variable        ynew atom y+v_yy
+	set             group all x v_xnew
+	set             group all y v_ynew
+
+	thermo          1
+	thermo_style    custom step pe lx ly lz pxx pyy pzz pxy pxz pyz press
+        reset_timestep  0
+
+	# --------- Computation of the total stress, strain, and stress per atom ------
+	variable	sigma_xx atom c_stress[1]/(${V}/${N}*10000)
+	variable	sigma_yy atom c_stress[2]/(${V}/${N}*10000)
+	variable	sigma_zz atom c_stress[3]/(${V}/${N}*10000)
+	variable	sigma_xy atom c_stress[4]/(${V}/${N}*10000)
+
+        dump            11 all custom 200 ./file.crack.dump.${K} id type x y z fx fy fz c_disp[1] c_disp[2] c_disp[3] v_sigma_xx v_sigma_yy v_sigma_zz v_sigma_xy #v_tau_r v_sigma_open v_slip v_open
+
+	min_style       cg
+	minimize        1e-12 10e-9 10000000 100000000
+
+	timestep        0.01
+	min_style       fire
+	minimize        0.0 1e-3 100000 100000
+ 	undump          11
+
+	unfix		1
+
+next		K
+jump		in.cracksystem_4 loop_start
+

@@ -16,12 +16,14 @@ With minor modifications, the current workflow can also be used on local machine
 * Bain path
 * Stacking fault (curves) (110)\[1-11\]\[-112\]
 * T-S curve
-* Dislocation properties (note that this feature does not integrated in the workflow yet)
+* Dislocation properties
+* Cracks
 
 ## Prerequisites 
 
 1. Installation of LAMMPS with the relevant packages compiled.
 2. Installation of PYTHON package: matplotlib, pandas, numpy, scipy.
+3. Matlab.
 
 ## How it works?
 
@@ -29,7 +31,7 @@ The workflow is governed by the bash file (submit.sh) which is a slurm job file.
 This file copy the lammps inputs and run it, which means that it depends on the system configuration.
 Thus, one need to specify:
 
-* email address: eaddress
+* email address: eaddress (can be skipped).
 * load the dependent modules (on cluster): 
 * give the lammps excutable: LMMP
 * specify the path to lammps and python inputs: lmp_inps & pps_python (Those inputs are provided from the repository).
@@ -42,10 +44,12 @@ After the proper configuration, one is able to perform potential test.
 2. Customize the SLURM job submission parameter.
 3. make sure the configuration is corrected.
 4. run the test by submiting the job script `sbatch submit.sh`
+5. Dislocation and crack calculations require a deep understanding of the code and should be performed separately with care. The users are welcome to contact the author for further consultation. 
 
 ## For testing the dislocation properties.
 
-Currently the workflow does not include the dislocation benchmark. Everything regarding dislocation calculations are put in the `dislocation` folder, including
+Currently the workflow does not include the dislocation and cracks benchmark. Everything regarding dislocation and crack calculations are put in the `dislocation` abd `cracks` folder, including
 * Script to create dislocation using [atomsk](https://atomsk.univ-lille.fr/)
 * LAMMPS script to crete various dislocations
-For more detials, please refer to another readme file inside dislocaiton folder.
+* K-test for (100) and (110) crack planes
+For more detials, please refer to the readme file inside `dislocaiton` and `cracks` folder.
